@@ -28,6 +28,7 @@ async function fetchPage(url, options = {}) {
     url,
     render_js: true,
     premium_proxy: true,
+    block_resources: false,  // Let JS and images load fully
   };
 
   if (cookies) {
