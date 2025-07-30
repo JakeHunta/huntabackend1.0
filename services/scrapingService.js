@@ -7,6 +7,12 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
   logger.warn('⚠️ SCRAPINGBEE_API_KEY not set. Scraping will fail.');
 }
 
+/**
+ * Fetch a page with retries and exponential backoff on 429 rate limits.
+ * Enables JS rendering to get fully rendered HTML.
+ * @param {string} url
+ * @param {number} maxRetries
+ */
 async function fetchPage(url, maxRetries = 5) {
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
   if (!SCRAPINGBEE_API_KEY) {
@@ -16,17 +22,18 @@ async function fetchPage(url, maxRetries = 5) {
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
     url,
-    render_js: false,
+    render_js: true,  // <-- Enable JS rendering for dynamic content
   };
 
   let attempt = 0;
-  let delayMs = 1000;
-  let rateLimitDelayMs = 10000;
+  const delayMs = 1000;
+  const rateLimitDelayMs = 10000;
 
   while (attempt <= maxRetries) {
     attempt++;
     try {
-      const response = await axios.get(BASE_URL, { params, timeout: 15000 });
+      const response = await axios.get(BASE_URL, { params, timeout: 30000 }); // 30s timeout
+      logger.debug(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
       const status = error.response?.status;
@@ -36,11 +43,17 @@ async function fetchPage(url, maxRetries = 5) {
         const jitter = Math.floor(Math.random() * 1000);
         const totalWait = waitTime + jitter;
         logger.warn(`⚠️ fetchPage attempt ${attempt} rate limited for URL: ${url} - waiting ${totalWait / 1000}s`);
-        if (attempt > maxRetries) throw error;
+        if (attempt > maxRetries) {
+          logger.error(`❌ fetchPage max retries reached due to rate limiting for URL: ${url}`);
+          throw error;
+        }
         await new Promise(r => setTimeout(r, totalWait));
       } else {
         logger.warn(`⚠️ fetchPage attempt ${attempt} failed for URL: ${url} - ${error.message}`);
-        if (attempt > maxRetries) throw error;
+        if (attempt > maxRetries) {
+          logger.error(`❌ fetchPage max retries reached for URL: ${url}`);
+          throw error;
+        }
         await new Promise(r => setTimeout(r, delayMs * attempt));
       }
     }
