@@ -198,6 +198,3 @@ class ScrapingService {
 
 export const scrapingService = new ScrapingService();
 
-}
-
-export const scrapingService = new ScrapingService();
