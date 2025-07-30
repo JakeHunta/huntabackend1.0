@@ -15,12 +15,22 @@ async function fetchPage(url, options = {}) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
+  const customHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+      'Chrome/115.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-GB,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Referer': 'https://www.ebay.co.uk/',
+  };
+
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
     url,
     render_js: true,
     premium_proxy: true,
-    block_resources: false, // Important for bypassing bot protection
+    block_resources: false,  // bypass ads/blockers
+    headers: JSON.stringify(customHeaders),
   };
 
   if (cookies) {
@@ -85,7 +95,7 @@ class ScrapingService {
   async searchEbay(term) {
     const url = buildMarketplaceUrl('https://www.ebay.co.uk/sch/i.html', {
       _nkw: term,
-      _sop: '12',
+      _sop: '12', // Sort by newly listed
     });
 
     logger.info(`🛒 Searching eBay for: "${term}"`);
@@ -99,13 +109,17 @@ class ScrapingService {
     logger.info(`📝 Fetched eBay HTML length: ${html.length}`);
     logger.info(`📝 eBay HTML snippet (first 5KB):\n${html.slice(0, 5000).replace(/\n/g, ' ')}`);
 
-    // Check for bot blocking keywords
-    if (html.includes('radware_stormcaster') || html.includes('just a moment') || html.includes('captcha')) {
+    // Detect bot-block page by known keywords
+    if (
+      html.toLowerCase().includes('radware_stormcaster') ||
+      html.toLowerCase().includes('just a moment') ||
+      html.toLowerCase().includes('captcha')
+    ) {
       logger.warn('⚠️ Detected possible bot-blocking content in eBay HTML');
       return [];
     }
 
-    // Find <li> blocks with class containing "s-item"
+    // Grab all <li> elements with class containing s-item
     const itemBlocks = [...html.matchAll(/<li[^>]+class="[^"]*s-item[^"]*"[^>]*>.*?<\/li>/gs)];
     logger.info(`📝 Found ${itemBlocks.length} <li class="s-item"> blocks`);
 
@@ -134,4 +148,3 @@ class ScrapingService {
 }
 
 export const scrapingService = new ScrapingService();
-
