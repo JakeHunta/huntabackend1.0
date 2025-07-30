@@ -9,33 +9,41 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
 
 /**
  * Fetch a page with retries and exponential backoff on 429 rate limits.
- * Enables JS rendering to get fully rendered HTML.
- * Passes custom headers to mimic a real browser and reduce blocking.
+ * Enables JS rendering, uses premium proxy (rotating IPs).
+ * Passes custom headers and optional cookies for logged-in scraping.
  * @param {string} url
+ * @param {object[]} cookies Optional array of cookie objects { name, value, domain }
  * @param {number} maxRetries
  */
-async function fetchPage(url, maxRetries = 5) {
+async function fetchPage(url, cookies = [], maxRetries = 5) {
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
   if (!SCRAPINGBEE_API_KEY) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
-  // Common browser-like headers for eBay and similar sites
+  // Browser-like headers to reduce blocking (adjust as needed)
   const customHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) ' +
       'Chrome/115.0.0.0 Safari/537.36',
     'Accept-Language': 'en-GB,en;q=0.9',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Referer': 'https://www.ebay.co.uk/',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    Referer: url.includes('ebay.co.uk') ? 'https://www.ebay.co.uk/' : undefined,
   };
 
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
     url,
     render_js: true,
+    premium_proxy: true, // Enables rotating IPs if your plan supports it
+    block_resources: false, // Load JS and resources fully
     headers: JSON.stringify(customHeaders),
   };
+
+  if (cookies.length) {
+    params.cookies = JSON.stringify(cookies);
+  }
 
   let attempt = 0;
   const delayMs = 1000;
@@ -44,13 +52,14 @@ async function fetchPage(url, maxRetries = 5) {
   while (attempt <= maxRetries) {
     attempt++;
     try {
-      const response = await axios.get(BASE_URL, { params, timeout: 30000 });
+      const response = await axios.get(BASE_URL, { params, timeout: 30000 }); // 30s timeout
       logger.debug(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
       const status = error.response?.status;
 
       if (status === 429) {
+        // Rate limit hit, exponential backoff + jitter
         const waitTime = rateLimitDelayMs * Math.pow(2, attempt - 1);
         const jitter = Math.floor(Math.random() * 1000);
         const totalWait = waitTime + jitter;
@@ -70,6 +79,7 @@ async function fetchPage(url, maxRetries = 5) {
       }
     }
   }
+
   throw new Error('fetchPage failed after max retries');
 }
 
@@ -133,7 +143,11 @@ class ScrapingService {
   async searchVinted(term) {
     const url = `https://www.vinted.co.uk/catalog?search_text=${encodeURIComponent(term)}`;
     logger.info(`👗 Searching Vinted for: "${term}"`);
-    const html = await fetchPage(url);
+    // Example of cookie for logged-in scraping, replace with real session cookie if available
+    const cookies = [
+      // { name: 'sessionid', value: process.env.VINTED_SESSION_ID, domain: '.vinted.co.uk' },
+    ];
+    const html = await fetchPage(url, cookies);
     if (!html) return [];
 
     const blocks = [...html.matchAll(/<a class=".*?catalog-item.*?" href="([^"]+)"[^>]*>.*?<img.*?src="([^"]+)"[^>]*>.*?<div class=".*?price.*?">([^<]+)<\/div>/gs)];
@@ -197,4 +211,3 @@ class ScrapingService {
 }
 
 export const scrapingService = new ScrapingService();
-
