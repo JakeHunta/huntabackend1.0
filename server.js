@@ -41,7 +41,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// eBay webhook verification GET handler
+// eBay webhook verification challenge GET handler
 app.get('/webhooks/ebay-account-deletion', (req, res) => {
   const challenge = req.query['challenge'];
   if (challenge) {
@@ -56,9 +56,7 @@ app.get('/webhooks/ebay-account-deletion', (req, res) => {
 const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || 'your-verification-token';
 
 app.post('/webhooks/ebay-account-deletion', (req, res) => {
-  const token =
-    req.headers['x-ebay-verification-token'] ||
-    req.body.verificationToken;
+  const token = req.headers['x-ebay-verification-token'] || req.body.verificationToken;
 
   if (token !== VERIFICATION_TOKEN) {
     console.warn('⚠️ eBay webhook verification token mismatch');
@@ -109,4 +107,3 @@ app.post('/search', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Hunta backend running on port ${PORT}`);
 });
-
