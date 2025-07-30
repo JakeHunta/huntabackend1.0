@@ -93,6 +93,8 @@ class ScrapingService {
     });
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
+    logger.info(`Fetched eBay HTML length: ${html.length}`);
+logger.info(`Sample eBay HTML snippet: ${html.slice(0, 1000)}`);
     if (!html) return [];
 
     const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
