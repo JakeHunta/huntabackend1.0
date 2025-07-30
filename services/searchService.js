@@ -1,5 +1,6 @@
 import { openaiService } from './openaiService.js';
 import { scrapingService } from './scrapingService.js';
+import { googleShoppingService } from './googleShoppingService.js'; // new
 import { logger } from '../utils/logger.js';
 
 function delay(ms) {
@@ -44,6 +45,7 @@ class SearchService {
         { name: 'vinted', fn: scrapingService.searchVinted },
         { name: 'depop', fn: scrapingService.searchDepop },
         { name: 'gumtree', fn: scrapingService.searchGumtree },
+        { name: 'google_shopping', fn: googleShoppingService.search.bind(googleShoppingService) },
       ];
 
       let allResults = [];
