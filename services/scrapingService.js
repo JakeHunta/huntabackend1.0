@@ -28,7 +28,6 @@ async function fetchPage(url, options = {}) {
     url,
     render_js: true,
     premium_proxy: true,
-    headers: JSON.stringify(customHeaders),
   };
 
   if (cookies) {
