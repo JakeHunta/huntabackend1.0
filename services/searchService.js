@@ -15,20 +15,29 @@ class SearchService {
     try {
       logger.info(`🔍 Starting search for: "${searchTerm}" in ${location} with ${currency}`);
 
-      // Enhance query with OpenAI
-      let enhancedQuery;
+      // Enhance query with OpenAI and validate response
+      let enhancedQuery = { search_terms: [] };
       try {
         logger.info('🤖 Enhancing search query with OpenAI...');
         enhancedQuery = await openaiService.enhanceSearchQuery(searchTerm);
+        if (!enhancedQuery || !Array.isArray(enhancedQuery.search_terms)) {
+          logger.warn('⚠️ OpenAI response invalid format, using empty search terms');
+          enhancedQuery = { search_terms: [] };
+        }
         this.lastEnhancedQuery = enhancedQuery;
       } catch (error) {
         logger.warn('⚠️ OpenAI enhancement failed, using fallback:', error.message);
         enhancedQuery = openaiService.getFallbackEnhancement(searchTerm);
+        if (!enhancedQuery || !Array.isArray(enhancedQuery.search_terms)) {
+          enhancedQuery = { search_terms: [] };
+        }
         this.lastEnhancedQuery = enhancedQuery;
       }
 
       logger.info('🕷️ Scraping marketplaces...');
+
       const allSearchTerms = [searchTerm, ...enhancedQuery.search_terms].slice(0, 5);
+
       const sources = [
         { name: 'ebay', fn: scrapingService.searchEbay },
         { name: 'discogs', fn: scrapingService.searchDiscogs },
@@ -37,20 +46,31 @@ class SearchService {
         { name: 'gumtree', fn: scrapingService.searchGumtree },
       ];
 
-      const allResults = [];
+      let allResults = [];
 
       for (const term of allSearchTerms) {
         logger.info(`🔍 Searching term: "${term}"`);
-        for (const source of sources) {
-          try {
-            const results = await source.fn(term, location);
-            logger.info(`📦 ${source.name} returned ${results.length} results for "${term}"`);
-            allResults.push(...results);
-          } catch (err) {
-            logger.warn(`⚠️ ${source.name} search failed for "${term}": ${err.message}`);
-          }
-          await delay(1500); // Avoid hitting rate limits
-        }
+
+        // Run all marketplace searches in parallel per term
+        const resultsPerSource = await Promise.all(
+          sources.map(async (source) => {
+            try {
+              // Call scraping fn with one parameter (term)
+              const results = await source.fn(term);
+              logger.info(`📦 ${source.name} returned ${results.length} results for "${term}"`);
+              return results;
+            } catch (err) {
+              logger.warn(`⚠️ ${source.name} search failed for "${term}": ${err.message}`);
+              return [];
+            }
+          })
+        );
+
+        // Flatten results and accumulate
+        allResults = allResults.concat(...resultsPerSource);
+
+        // Delay between terms to avoid rate limiting
+        await delay(1500);
       }
 
       if (allResults.length === 0) {
@@ -58,15 +78,20 @@ class SearchService {
         return [];
       }
 
+      // Deduplicate results by normalized title and price
       const uniqueResults = this.deduplicateResults(allResults);
       logger.info(`📊 Found ${uniqueResults.length} unique results`);
 
+      // Score results
       const scoredResults = this.scoreResults(uniqueResults, searchTerm, enhancedQuery);
+
+      // Filter & sort by score (threshold 0.3)
       const filtered = scoredResults
         .sort((a, b) => b.score - a.score)
         .filter(r => r.score >= 0.3)
         .slice(0, 30);
 
+      // Convert price format/currency symbols
       const converted = this.convertCurrency(filtered, currency);
       logger.info(`✅ Returning ${converted.length} results`);
 
@@ -81,12 +106,11 @@ class SearchService {
   deduplicateResults(results) {
     const seen = new Set();
     return results.filter(result => {
-      const key = `${result.title?.toLowerCase().trim()}-${result.price?.toLowerCase().trim()}`;
-      if (!seen.has(key) && result.title && result.price && result.link) {
-        seen.add(key);
-        return true;
-      }
-      return false;
+      if (!result.title || !result.price || !result.link) return false;
+      const key = `${result.title.toLowerCase().trim().replace(/\s+/g, ' ')}-${result.price.toLowerCase().trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
   }
 
@@ -95,7 +119,7 @@ class SearchService {
     const enhancedTerms = enhancedQuery.search_terms.map(t => t.toLowerCase());
 
     return results.map(result => {
-      const title = result.title.toLowerCase();
+      const title = (result.title || '').toLowerCase();
       const description = (result.description || '').toLowerCase();
       let score = 0.05;
 
@@ -125,7 +149,7 @@ class SearchService {
 
     return results
       .filter(r => {
-        const p = r.price;
+        const p = r.price || '';
         if (targetCurrency === 'GBP') return p.includes('£') || (!p.includes('$') && !p.includes('€') && /\d/.test(p));
         return p.includes(symbol);
       })
