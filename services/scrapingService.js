@@ -7,13 +7,6 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
   logger.warn('⚠️ SCRAPINGBEE_API_KEY not set. Scraping will fail.');
 }
 
-/**
- * Fetch a page with retries and exponential backoff on 429 rate limits.
- * Enables JS rendering to get fully rendered HTML.
- * Passes custom headers and optional cookies to mimic a real browser and reduce blocking.
- * @param {string} url - Fully constructed URL (already encoded where needed).
- * @param {object} options Optional. { maxRetries: number, cookies: Array<{name, value, domain}> }
- */
 async function fetchPage(url, options = {}) {
   const { maxRetries = 5, cookies } = options;
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
@@ -85,7 +78,6 @@ function safeMatch(regex, str, group = 1) {
   return match && match[group] ? match[group].trim() : null;
 }
 
-// Helper to build marketplace search URLs with proper encoding of query params
 function buildMarketplaceUrl(base, queryParams) {
   const params = new URLSearchParams();
   for (const key in queryParams) {
@@ -103,13 +95,11 @@ class ScrapingService {
 
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
-
     if (!html) {
       logger.warn('⚠️ fetchPage returned empty HTML');
       return [];
     }
 
-    // DEBUG LOGGING: show HTML length and first 1k chars (truncate for logs)
     logger.info(`📝 Fetched eBay HTML length: ${html.length}`);
     logger.info(`📝 eBay HTML snippet:\n${html.slice(0, 1000).replace(/\n/g, ' ')}`);
 
@@ -128,15 +118,8 @@ class ScrapingService {
     }).filter(Boolean);
 
     logger.info(`📦 Parsed ${items.length} eBay items for "${term}"`);
-
     return items;
   }
-
-  // Add other marketplace scraping methods below as needed
-}
-
-export const scrapingService = new ScrapingService();
-
 }
 
 export const scrapingService = new ScrapingService();
