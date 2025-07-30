@@ -2,14 +2,16 @@ import axios from 'axios';
 import { logger } from '../utils/logger.js';
 
 const RAPIDAPI_HOST = 'google-shopping-results.p.rapidapi.com';
-const RAPIDAPI_KEY = process.env.RAPIDAPI_GOOGLE_SHOPPING_KEY;
+const RAPIDAPI_KEY = process.env.RAPIDAPI_GOOGLE_SHOPPING_KEY?.trim();
 
 class GoogleShoppingService {
   async search(term) {
     if (!RAPIDAPI_KEY) {
-      logger.warn('⚠️ RAPIDAPI_GOOGLE_SHOPPING_KEY not set');
+      logger.warn('⚠️ RAPIDAPI_GOOGLE_SHOPPING_KEY not set or empty');
       return [];
     }
+
+    logger.info(`🔑 Using RapidAPI key starting with: ${RAPIDAPI_KEY.slice(0, 5)}...`);
 
     try {
       const response = await axios.get('https://google-shopping-results.p.rapidapi.com/google-search', {
