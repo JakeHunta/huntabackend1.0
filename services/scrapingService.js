@@ -7,72 +7,88 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
   logger.warn('⚠️ SCRAPINGBEE_API_KEY not set. Scraping will fail.');
 }
 
+const ENABLE_HTML_DEBUG = process.env.ENABLE_HTML_DEBUG === 'true';
+
 /**
- * Fetch a page with retries and exponential backoff on 429 rate limits.
- * Enables JS rendering to get fully rendered HTML.
- * Passes custom headers and optional cookies to mimic a real browser and reduce blocking.
- * @param {string} url - Fully constructed URL (already encoded where needed).
- * @param {object} options Optional. { maxRetries: number, cookies: Array<{name, value, domain}> }
+ * Fetch a page from ScrapingBee with retries and exponential backoff on 429.
+ * Passes custom headers and optional cookies.
+ * @param {string} url - Fully constructed URL to scrape
+ * @param {object} options - Optional settings { maxRetries, cookies }
+ * @returns {Promise<string>} - HTML content
  */
 async function fetchPage(url, options = {}) {
   const { maxRetries = 5, cookies } = options;
 
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
-  if (!SCRAPINGBEE_API_KEY) {
-    throw new Error('ScrapingBee API key is not configured');
-  }
+  if (!SCRAPINGBEE_API_KEY) throw new Error('ScrapingBee API key is not configured');
 
-  const customHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-      'Chrome/115.0.0.0 Safari/537.36',
+  const headers = {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
     'Accept-Language': 'en-GB,en;q=0.9',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Referer': 'https://www.ebay.co.uk/',
+    Accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    Referer: 'https://www.ebay.co.uk/',
   };
 
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
-    url,             // Pass fully constructed URL here
+    url,
     render_js: true,
-    premium_proxy: true,    // Use ScrapingBee premium rotating proxies
-    headers: JSON.stringify(customHeaders),
+    premium_proxy: true,
+    headers: JSON.stringify(headers),
   };
 
-  if (cookies) {
+  if (cookies && cookies.length > 0) {
     params.cookies = JSON.stringify(cookies);
   }
 
   let attempt = 0;
-  const delayMs = 1000;
-  const rateLimitDelayMs = 10000;
+  const baseDelay = 1000;
+  const rateLimitDelay = 10000;
 
   while (attempt <= maxRetries) {
     attempt++;
     try {
-      const response = await axios.get(BASE_URL, { params, timeout: 30000 });
-      logger.debug(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
+      const response = await axios.get(BASE_URL, {
+        params,
+        timeout: 30000,
+      });
+
+      if (ENABLE_HTML_DEBUG) {
+        logger.info(`HTML snippet for ${url}:\n${response.data.slice(0, 1000)}\n---`);
+      }
+
       return response.data;
     } catch (error) {
       const status = error.response?.status;
+      const statusText = error.response?.statusText;
+      const dataSnippet = error.response?.data
+        ? JSON.stringify(error.response.data).slice(0, 500)
+        : '';
+
+      logger.warn(
+        `⚠️ fetchPage attempt ${attempt} failed for URL: ${url} - Status: ${status} ${statusText} - Message: ${error.message}\nResponse snippet: ${dataSnippet}`
+      );
 
       if (status === 429) {
-        const waitTime = rateLimitDelayMs * Math.pow(2, attempt - 1);
+        const waitTime = rateLimitDelay * 2 ** (attempt - 1);
         const jitter = Math.floor(Math.random() * 1000);
         const totalWait = waitTime + jitter;
-        logger.warn(`⚠️ fetchPage attempt ${attempt} rate limited for URL: ${url} - waiting ${totalWait / 1000}s`);
+        logger.warn(`⚠️ Rate limited. Waiting ${totalWait / 1000}s before retry...`);
+
         if (attempt > maxRetries) {
-          logger.error(`❌ fetchPage max retries reached due to rate limiting for URL: ${url}`);
+          logger.error(`❌ Max retries reached due to rate limiting for URL: ${url}`);
           throw error;
         }
-        await new Promise(r => setTimeout(r, totalWait));
+        await new Promise((r) => setTimeout(r, totalWait));
       } else {
-        logger.warn(`⚠️ fetchPage attempt ${attempt} failed for URL: ${url} - ${error.message}`);
         if (attempt > maxRetries) {
-          logger.error(`❌ fetchPage max retries reached for URL: ${url}`);
+          logger.error(`❌ Max retries reached for URL: ${url}`);
           throw error;
         }
-        await new Promise(r => setTimeout(r, delayMs * attempt));
+        await new Promise((r) => setTimeout(r, baseDelay * attempt));
       }
     }
   }
@@ -80,23 +96,24 @@ async function fetchPage(url, options = {}) {
 }
 
 function safeMatch(regex, str, group = 1) {
-  const match = regex.exec(str);
-  return match && match[group] ? match[group].trim() : null;
+  try {
+    const match = regex.exec(str);
+    return match && match[group] ? match[group].trim() : null;
+  } catch (e) {
+    logger.warn(`⚠️ Regex error: ${e.message}`);
+    return null;
+  }
 }
 
-// Helper to build marketplace search URLs with proper encoding of query params
-function buildMarketplaceUrl(base, queryParams) {
-  const params = new URLSearchParams();
-  for (const key in queryParams) {
-    params.append(key, queryParams[key]);
-  }
-  return `${base}?${params.toString()}`;
+function buildUrl(base, params) {
+  const usp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => usp.append(k, v));
+  return `${base}?${usp.toString()}`;
 }
 
 class ScrapingService {
   async searchEbay(term) {
-    // Build eBay URL with encoded query params exactly once
-    const url = buildMarketplaceUrl('https://www.ebay.co.uk/sch/i.html', {
+    const url = buildUrl('https://www.ebay.co.uk/sch/i.html', {
       _nkw: term,
       _sop: '12',
     });
@@ -105,25 +122,26 @@ class ScrapingService {
     const html = await fetchPage(url);
     if (!html) return [];
 
-    const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
-      const blockStr = block[0];
-      const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
-      const link = safeMatch(/href="(https:\/\/www\.ebay\.co\.uk\/itm\/[^"]+)"/, blockStr);
-      const price = safeMatch(/£[\d,.]+/, blockStr);
-      const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
+    const matches = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)];
+    return matches
+      .map((block) => {
+        const blockStr = block[0];
+        const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
+        const link = safeMatch(/href="(https:\/\/www\.ebay\.co\.uk\/itm\/[^"]+)"/, blockStr);
+        const price = safeMatch(/£[\d,.]+/, blockStr);
+        const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
 
-      if (title && link && price) {
-        return { title, price, link, image, source: 'ebay' };
-      }
-      logger.warn(`⚠️ Skipping incomplete eBay item. Title: ${title}, Link: ${link}, Price: ${price}`);
-      return null;
-    }).filter(Boolean);
-
-    return items;
+        if (title && link && price) {
+          return { title, price, link, image, source: 'ebay' };
+        }
+        logger.warn(`⚠️ Skipping incomplete eBay item. Title: ${title}, Link: ${link}, Price: ${price}`);
+        return null;
+      })
+      .filter(Boolean);
   }
 
   async searchDiscogs(term) {
-    const url = buildMarketplaceUrl('https://www.discogs.com/search/', {
+    const url = buildUrl('https://www.discogs.com/search/', {
       q: term,
       type: 'all',
     });
@@ -132,35 +150,39 @@ class ScrapingService {
     const html = await fetchPage(url);
     if (!html) return [];
 
-    const blocks = [...html.matchAll(/<div class="card card_large.*?<\/div>\s*<\/div>/gs)];
-    return blocks.map(block => {
-      const blockStr = block[0];
-      const title = safeMatch(/<a[^>]*href="[^"]+"[^>]*>(.*?)<\/a>/s, blockStr);
-      const linkPath = safeMatch(/href="([^"]+)"/, blockStr);
-      const price = safeMatch(/£[\d,.]+/, blockStr);
-      const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
+    const matches = [...html.matchAll(/<div class="card card_large.*?<\/div>\s*<\/div>/gs)];
+    return matches
+      .map((block) => {
+        const blockStr = block[0];
+        const title = safeMatch(/<a[^>]*href="[^"]+"[^>]*>(.*?)<\/a>/s, blockStr);
+        const linkPath = safeMatch(/href="([^"]+)"/, blockStr);
+        const price = safeMatch(/£[\d,.]+/, blockStr);
+        const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
 
-      if (title && linkPath && price) {
-        return {
-          title,
-          price,
-          link: `https://www.discogs.com${linkPath}`,
-          image,
-          source: 'discogs',
-        };
-      }
-      logger.warn(`⚠️ Skipping incomplete Discogs item. Title: ${title}, LinkPath: ${linkPath}, Price: ${price}`);
-      return null;
-    }).filter(Boolean);
+        if (title && linkPath && price) {
+          return {
+            title,
+            price,
+            link: `https://www.discogs.com${linkPath}`,
+            image,
+            source: 'discogs',
+          };
+        }
+        logger.warn(
+          `⚠️ Skipping incomplete Discogs item. Title: ${title}, LinkPath: ${linkPath}, Price: ${price}`
+        );
+        return null;
+      })
+      .filter(Boolean);
   }
 
   async searchVinted(term) {
-    const url = buildMarketplaceUrl('https://www.vinted.co.uk/catalog', {
+    const url = buildUrl('https://www.vinted.co.uk/catalog', {
       search_text: term,
     });
-    logger.info(`👗 Searching Vinted for: "${term}"`);
 
-    // Optional: Add session cookies here if you want logged-in scraping (set via env)
+    logger.info(`👗 Searching Vinted for: "${term}"`);
+    // Optional cookies for logged-in sessions
     const cookies = [
       // { name: 'sessionid', value: process.env.VINTED_SESSION_ID, domain: '.vinted.co.uk' },
     ];
@@ -168,48 +190,50 @@ class ScrapingService {
     const html = await fetchPage(url, { cookies });
     if (!html) return [];
 
-    const blocks = [...html.matchAll(/<a class=".*?catalog-item.*?" href="([^"]+)"[^>]*>.*?<img.*?src="([^"]+)"[^>]*>.*?<div class=".*?price.*?">([^<]+)<\/div>/gs)];
-    return blocks.map(match => {
-      const link = `https://www.vinted.co.uk${match[1]}`;
-      const image = match[2];
-      const price = match[3];
-      const title = link.split('/').filter(Boolean).pop()?.replace(/-/g, ' ');
+    const matches = [...html.matchAll(/<a class=".*?catalog-item.*?" href="([^"]+)"[^>]*>.*?<img.*?src="([^"]+)"[^>]*>.*?<div class=".*?price.*?">([^<]+)<\/div>/gs)];
+    return matches
+      .map((match) => {
+        const link = `https://www.vinted.co.uk${match[1]}`;
+        const image = match[2];
+        const price = match[3];
+        const title = link.split('/').filter(Boolean).pop()?.replace(/-/g, ' ');
 
-      if (title && link && price) {
-        return { title, price: price.trim(), link, image, source: 'vinted' };
-      }
-      logger.warn(`⚠️ Skipping incomplete Vinted item. Title: ${title}, Link: ${link}, Price: ${price}`);
-      return null;
-    }).filter(Boolean);
+        if (title && link && price) {
+          return { title, price: price.trim(), link, image, source: 'vinted' };
+        }
+        logger.warn(`⚠️ Skipping incomplete Vinted item. Title: ${title}, Link: ${link}, Price: ${price}`);
+        return null;
+      })
+      .filter(Boolean);
   }
 
   async searchDepop(term) {
-    const url = buildMarketplaceUrl('https://www.depop.com/search/', {
-      q: term,
-    });
+    const url = buildUrl('https://www.depop.com/search/', { q: term });
 
     logger.info(`🛍️ Searching Depop for: "${term}"`);
     const html = await fetchPage(url);
     if (!html) return [];
 
-    const blocks = [...html.matchAll(/<a href="\/products\/[^"]+".*?<\/a>/gs)];
-    return blocks.map(block => {
-      const blockStr = block[0];
-      const link = safeMatch(/href="([^"]+)"/, blockStr);
-      const title = safeMatch(/<div[^>]+data-testid="listing-title".*?>(.*?)<\/div>/, blockStr);
-      const price = safeMatch(/£[\d,.]+/, blockStr);
-      const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
+    const matches = [...html.matchAll(/<a href="\/products\/[^"]+".*?<\/a>/gs)];
+    return matches
+      .map((block) => {
+        const blockStr = block[0];
+        const link = safeMatch(/href="([^"]+)"/, blockStr);
+        const title = safeMatch(/<div[^>]+data-testid="listing-title".*?>(.*?)<\/div>/, blockStr);
+        const price = safeMatch(/£[\d,.]+/, blockStr);
+        const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
 
-      if (title && price && link) {
-        return { title, price, link: `https://www.depop.com${link}`, image, source: 'depop' };
-      }
-      logger.warn(`⚠️ Skipping incomplete Depop item. Title: ${title}, Link: ${link}, Price: ${price}`);
-      return null;
-    }).filter(Boolean);
+        if (title && price && link) {
+          return { title, price, link: `https://www.depop.com${link}`, image, source: 'depop' };
+        }
+        logger.warn(`⚠️ Skipping incomplete Depop item. Title: ${title}, Link: ${link}, Price: ${price}`);
+        return null;
+      })
+      .filter(Boolean);
   }
 
   async searchGumtree(term) {
-    const url = buildMarketplaceUrl('https://www.gumtree.com/search', {
+    const url = buildUrl('https://www.gumtree.com/search', {
       search_category: 'all',
       q: term,
       distance: '100',
@@ -219,20 +243,22 @@ class ScrapingService {
     const html = await fetchPage(url);
     if (!html) return [];
 
-    const blocks = [...html.matchAll(/<a class="listing-link".*?<\/a>/gs)];
-    return blocks.map(block => {
-      const blockStr = block[0];
-      const link = safeMatch(/href="([^"]+)"/, blockStr);
-      const title = safeMatch(/<h2[^>]*>(.*?)<\/h2>/, blockStr);
-      const price = safeMatch(/£[\d,.]+/, blockStr);
-      const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
+    const matches = [...html.matchAll(/<a class="listing-link".*?<\/a>/gs)];
+    return matches
+      .map((block) => {
+        const blockStr = block[0];
+        const link = safeMatch(/href="([^"]+)"/, blockStr);
+        const title = safeMatch(/<h2[^>]*>(.*?)<\/h2>/, blockStr);
+        const price = safeMatch(/£[\d,.]+/, blockStr);
+        const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
 
-      if (title && link && price) {
-        return { title, price, link: `https://www.gumtree.com${link}`, image, source: 'gumtree' };
-      }
-      logger.warn(`⚠️ Skipping incomplete Gumtree item. Title: ${title}, Link: ${link}, Price: ${price}`);
-      return null;
-    }).filter(Boolean);
+        if (title && link && price) {
+          return { title, price, link: `https://www.gumtree.com${link}`, image, source: 'gumtree' };
+        }
+        logger.warn(`⚠️ Skipping incomplete Gumtree item. Title: ${title}, Link: ${link}, Price: ${price}`);
+        return null;
+      })
+      .filter(Boolean);
   }
 }
 
