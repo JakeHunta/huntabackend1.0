@@ -1,3 +1,30 @@
+// Import express if not imported yet
+import express from 'express';
+
+// Assuming you already have something like:
+// const app = express();
+app.use(express.json()); // ensure JSON body parsing is enabled
+
+// Define your verification token (set this in your .env ideally)
+const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || 'your-verification-token';
+
+// Add the eBay webhook route
+app.post('/webhooks/ebay-account-deletion', (req, res) => {
+  const token =
+    req.headers['x-ebay-verification-token'] ||
+    req.body.verificationToken;
+
+  if (token !== VERIFICATION_TOKEN) {
+    console.warn('⚠️ eBay webhook verification token mismatch');
+    return res.status(403).send('Forbidden');
+  }
+
+  console.log('✅ Received eBay account deletion webhook:', req.body);
+
+  // TODO: Add any cleanup logic here, e.g. remove user data from your DB
+
+  res.status(200).send('OK');
+});
 import dotenv from 'dotenv';
 dotenv.config();
 
