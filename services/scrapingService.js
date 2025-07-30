@@ -140,7 +140,7 @@ class ScrapingService {
     const url = `https://www.vinted.co.uk/catalog?search_text=${encodeURIComponent(term)}`;
     logger.info(`👗 Searching Vinted for: "${term}"`);
 
-    // Example cookies array to scrape as logged-in user - set in env or config if needed
+    // Optional: Add session cookies here if you want logged-in scraping (set via env)
     const cookies = [
       // { name: 'sessionid', value: process.env.VINTED_SESSION_ID, domain: '.vinted.co.uk' },
     ];
