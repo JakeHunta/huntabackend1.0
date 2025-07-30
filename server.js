@@ -41,35 +41,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// eBay webhook verification challenge GET handler
-app.get('/webhooks/ebay-account-deletion', (req, res) => {
-  const challenge = req.query['challenge'];
-  if (challenge) {
-    console.log('✅ Responding to eBay verification challenge:', challenge);
-    res.status(200).send(challenge);
-  } else {
-    res.status(400).send('Bad Request: Missing challenge parameter');
-  }
-});
-
-// eBay account deletion webhook POST handler
-const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || 'your-verification-token';
-
-app.post('/webhooks/ebay-account-deletion', (req, res) => {
-  const token = req.headers['x-ebay-verification-token'] || req.body.verificationToken;
-
-  if (token !== VERIFICATION_TOKEN) {
-    console.warn('⚠️ eBay webhook verification token mismatch');
-    return res.status(403).send('Forbidden');
-  }
-
-  console.log('✅ Received eBay account deletion webhook:', req.body);
-
-  // TODO: Add your cleanup logic here, e.g., remove user data from DB
-
-  res.status(200).send('OK');
-});
-
 // Search API endpoint
 app.post('/search', async (req, res) => {
   try {
