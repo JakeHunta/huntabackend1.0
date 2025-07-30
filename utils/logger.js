@@ -1,5 +1,15 @@
+// utils/logger.js
+
 export const logger = {
-  info: (...args) => console.log('[INFO]', ...args),
-  warn: (...args) => console.warn('[WARN]', ...args),
-  error: (...args) => console.error('[ERROR]', ...args),
+  info: (msg, ...args) => console.log('[INFO]', msg, ...args),
+  warn: (msg, ...args) => console.warn('[WARN]', msg, ...args),
+  error: (msg, ...args) => console.error('[ERROR]', msg, ...args),
+  debug: (msg, ...args) => {
+    if (process.env.NODE_ENV === 'production') return; // optionally disable debug in prod
+    if (console.debug) {
+      console.debug('[DEBUG]', msg, ...args);
+    } else {
+      console.log('[DEBUG]', msg, ...args);
+    }
+  },
 };
