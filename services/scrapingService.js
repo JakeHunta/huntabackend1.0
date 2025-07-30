@@ -10,10 +10,12 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
 async function fetchPage(url, options = {}) {
   const { maxRetries = 5, cookies } = options;
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
+
   if (!SCRAPINGBEE_API_KEY) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
+  // Set headers only via ScrapingBee headers param (as JSON string)
   const customHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) ' +
@@ -23,14 +25,14 @@ async function fetchPage(url, options = {}) {
     'Referer': 'https://www.ebay.co.uk/',
   };
 
+  // Prepare ScrapingBee params exactly as API expects:
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
     url,
     render_js: true,
     premium_proxy: true,
-    block_resources: false,
-    headers: JSON.stringify(customHeaders),
-    country: 'GB',
+    block_resources: false,  // important to disable to prevent blocking
+    headers: JSON.stringify(customHeaders),  // pass headers as JSON string
   };
 
   if (cookies) {
@@ -72,7 +74,6 @@ async function fetchPage(url, options = {}) {
       }
     }
   }
-
   throw new Error('fetchPage failed after max retries');
 }
 
@@ -98,7 +99,6 @@ class ScrapingService {
 
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
-
     if (!html) {
       logger.warn('⚠️ fetchPage returned empty HTML');
       return [];
@@ -127,4 +127,3 @@ class ScrapingService {
 }
 
 export const scrapingService = new ScrapingService();
-
