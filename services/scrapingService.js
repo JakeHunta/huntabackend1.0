@@ -21,7 +21,6 @@ async function fetchPage(url, options = {}) {
     render_js: true,
     premium_proxy: true,
     block_resources: false, // Important for bypassing bot protection
-    country: 'GB',
   };
 
   if (cookies) {
