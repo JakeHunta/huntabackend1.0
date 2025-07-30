@@ -15,24 +15,13 @@ async function fetchPage(url, options = {}) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
-  // Set headers only via ScrapingBee headers param (as JSON string)
-  const customHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-      'Chrome/115.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-GB,en;q=0.9',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Referer': 'https://www.ebay.co.uk/',
-  };
-
-  // Prepare ScrapingBee params exactly as API expects:
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
     url,
     render_js: true,
     premium_proxy: true,
-    block_resources: false,  // important to disable to prevent blocking
-    headers: JSON.stringify(customHeaders),  // pass headers as JSON string
+    block_resources: false, // Important for bypassing bot protection
+    country: 'GB',
   };
 
   if (cookies) {
@@ -51,7 +40,9 @@ async function fetchPage(url, options = {}) {
       return response.data;
     } catch (error) {
       const status = error.response?.status;
-      const snippet = error.response?.data ? JSON.stringify(error.response.data).slice(0, 200) : '';
+      const snippet = error.response?.data
+        ? JSON.stringify(error.response.data).slice(0, 300)
+        : '';
 
       if (status === 429) {
         const waitTime = rateLimitDelayMs * Math.pow(2, attempt - 1);
@@ -74,6 +65,7 @@ async function fetchPage(url, options = {}) {
       }
     }
   }
+
   throw new Error('fetchPage failed after max retries');
 }
 
@@ -99,6 +91,7 @@ class ScrapingService {
 
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
+
     if (!html) {
       logger.warn('⚠️ fetchPage returned empty HTML');
       return [];
@@ -107,6 +100,7 @@ class ScrapingService {
     logger.info(`📝 Fetched eBay HTML length: ${html.length}`);
     logger.info(`📝 eBay HTML snippet:\n${html.slice(0, 1000).replace(/\n/g, ' ')}`);
 
+    // eBay listing regex parsing - might need tweaking if eBay HTML structure changes
     const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
       const blockStr = block[0];
       const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
