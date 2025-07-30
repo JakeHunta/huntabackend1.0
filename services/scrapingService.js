@@ -10,6 +10,7 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
 /**
  * Fetch a page with retries and exponential backoff on 429 rate limits.
  * Enables JS rendering to get fully rendered HTML.
+ * Passes custom headers to mimic a real browser and reduce blocking.
  * @param {string} url
  * @param {number} maxRetries
  */
@@ -19,10 +20,21 @@ async function fetchPage(url, maxRetries = 5) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
+  // Common browser-like headers for eBay and similar sites
+  const customHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+      'Chrome/115.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-GB,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Referer': 'https://www.ebay.co.uk/',
+  };
+
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
     url,
-    render_js: true,  // <-- Enable JS rendering for dynamic content
+    render_js: true,
+    headers: JSON.stringify(customHeaders),
   };
 
   let attempt = 0;
@@ -32,7 +44,7 @@ async function fetchPage(url, maxRetries = 5) {
   while (attempt <= maxRetries) {
     attempt++;
     try {
-      const response = await axios.get(BASE_URL, { params, timeout: 30000 }); // 30s timeout
+      const response = await axios.get(BASE_URL, { params, timeout: 30000 });
       logger.debug(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
@@ -182,6 +194,10 @@ class ScrapingService {
       return null;
     }).filter(Boolean);
   }
+}
+
+export const scrapingService = new ScrapingService();
+
 }
 
 export const scrapingService = new ScrapingService();
