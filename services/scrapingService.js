@@ -11,7 +11,7 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
  * Fetch a page with retries and exponential backoff on 429 rate limits.
  * Enables JS rendering to get fully rendered HTML.
  * Passes custom headers and optional cookies to mimic a real browser and reduce blocking.
- * @param {string} url
+ * @param {string} url - Fully constructed URL (already encoded where needed).
  * @param {object} options Optional. { maxRetries: number, cookies: Array<{name, value, domain}> }
  */
 async function fetchPage(url, options = {}) {
@@ -33,7 +33,7 @@ async function fetchPage(url, options = {}) {
 
   const params = {
     api_key: SCRAPINGBEE_API_KEY,
-    url,
+    url,             // Pass fully constructed URL here
     render_js: true,
     premium_proxy: true,    // Use ScrapingBee premium rotating proxies
     headers: JSON.stringify(customHeaders),
@@ -84,9 +84,23 @@ function safeMatch(regex, str, group = 1) {
   return match && match[group] ? match[group].trim() : null;
 }
 
+// Helper to build marketplace search URLs with proper encoding of query params
+function buildMarketplaceUrl(base, queryParams) {
+  const params = new URLSearchParams();
+  for (const key in queryParams) {
+    params.append(key, queryParams[key]);
+  }
+  return `${base}?${params.toString()}`;
+}
+
 class ScrapingService {
   async searchEbay(term) {
-    const url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(term)}&_sop=12`;
+    // Build eBay URL with encoded query params exactly once
+    const url = buildMarketplaceUrl('https://www.ebay.co.uk/sch/i.html', {
+      _nkw: term,
+      _sop: '12',
+    });
+
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
     if (!html) return [];
@@ -109,7 +123,11 @@ class ScrapingService {
   }
 
   async searchDiscogs(term) {
-    const url = `https://www.discogs.com/search/?q=${encodeURIComponent(term)}&type=all`;
+    const url = buildMarketplaceUrl('https://www.discogs.com/search/', {
+      q: term,
+      type: 'all',
+    });
+
     logger.info(`💿 Searching Discogs for: "${term}"`);
     const html = await fetchPage(url);
     if (!html) return [];
@@ -137,7 +155,9 @@ class ScrapingService {
   }
 
   async searchVinted(term) {
-    const url = `https://www.vinted.co.uk/catalog?search_text=${encodeURIComponent(term)}`;
+    const url = buildMarketplaceUrl('https://www.vinted.co.uk/catalog', {
+      search_text: term,
+    });
     logger.info(`👗 Searching Vinted for: "${term}"`);
 
     // Optional: Add session cookies here if you want logged-in scraping (set via env)
@@ -164,7 +184,10 @@ class ScrapingService {
   }
 
   async searchDepop(term) {
-    const url = `https://www.depop.com/search/?q=${encodeURIComponent(term)}`;
+    const url = buildMarketplaceUrl('https://www.depop.com/search/', {
+      q: term,
+    });
+
     logger.info(`🛍️ Searching Depop for: "${term}"`);
     const html = await fetchPage(url);
     if (!html) return [];
@@ -186,7 +209,12 @@ class ScrapingService {
   }
 
   async searchGumtree(term) {
-    const url = `https://www.gumtree.com/search?search_category=all&q=${encodeURIComponent(term)}&distance=100`;
+    const url = buildMarketplaceUrl('https://www.gumtree.com/search', {
+      search_category: 'all',
+      q: term,
+      distance: '100',
+    });
+
     logger.info(`🌳 Searching Gumtree for: "${term}"`);
     const html = await fetchPage(url);
     if (!html) return [];
