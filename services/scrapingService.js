@@ -37,7 +37,6 @@ async function fetchPage(url, options = {}) {
     url,
     render_js: true,
     premium_proxy: true,
-    headers: JSON.stringify(headers),
   };
 
   if (cookies && cookies.length > 0) {
