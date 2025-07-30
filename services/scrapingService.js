@@ -93,9 +93,44 @@ class ScrapingService {
     });
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
-    logger.info(`Fetched eBay HTML length: ${html.length}`);
-logger.info(`Sample eBay HTML snippet: ${html.slice(0, 1000)}`);
-    if (!html) return [];
+    async searchEbay(term) {
+  const url = buildMarketplaceUrl('https://www.ebay.co.uk/sch/i.html', {
+    _nkw: term,
+    _sop: '12',
+  });
+
+  logger.info(`🛒 Searching eBay for: "${term}"`);
+  const html = await fetchPage(url);
+
+  if (!html) {
+    logger.warn('⚠️ fetchPage returned empty HTML');
+    return [];
+  }
+
+  // DEBUG LOGGING: show HTML length and first 1k chars (truncate for logs)
+  logger.info(`📝 Fetched eBay HTML length: ${html.length}`);
+  logger.info(`📝 eBay HTML snippet:\n${html.slice(0, 1000).replace(/\n/g, ' ')}`);
+
+  // Existing parsing logic
+  const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
+    const blockStr = block[0];
+    const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
+    const link = safeMatch(/href="(https:\/\/www\.ebay\.co\.uk\/itm\/[^"]+)"/, blockStr);
+    const price = safeMatch(/£[\d,.]+/, blockStr);
+    const image = safeMatch(/<img[^>]+src="([^"]+)"/, blockStr);
+
+    if (title && link && price) {
+      return { title, price, link, image, source: 'ebay' };
+    }
+    logger.warn(`⚠️ Skipping incomplete eBay item. Title: ${title}, Link: ${link}, Price: ${price}`);
+    return null;
+  }).filter(Boolean);
+
+  logger.info(`📦 Parsed ${items.length} eBay items for "${term}"`);
+
+  return items;
+}
+
 
     const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
       const blockStr = block[0];
