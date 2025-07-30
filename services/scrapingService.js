@@ -10,18 +10,8 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
 async function fetchPage(url, options = {}) {
   const { maxRetries = 5, cookies } = options;
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
-
-  const params = {
-    api_key: SCRAPINGBEE_API_KEY,
-    url,
-    render_js: true,
-    premium_proxy: true,
-    block_resources: false,  // Important!
-    country: 'GB',
-  };
-
-  if (cookies) {
-    params.cookies = JSON.stringify(cookies);
+  if (!SCRAPINGBEE_API_KEY) {
+    throw new Error('ScrapingBee API key is not configured');
   }
 
   const customHeaders = {
@@ -38,7 +28,9 @@ async function fetchPage(url, options = {}) {
     url,
     render_js: true,
     premium_proxy: true,
-    block_resources: false,  // Let JS and images load fully
+    block_resources: false,
+    headers: JSON.stringify(customHeaders),
+    country: 'GB',
   };
 
   if (cookies) {
@@ -53,7 +45,6 @@ async function fetchPage(url, options = {}) {
     attempt++;
     try {
       const response = await axios.get(BASE_URL, { params, timeout: 30000 });
-          headers: JSON.stringify(customHeaders),
       logger.info(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
@@ -81,6 +72,7 @@ async function fetchPage(url, options = {}) {
       }
     }
   }
+
   throw new Error('fetchPage failed after max retries');
 }
 
@@ -106,6 +98,7 @@ class ScrapingService {
 
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
+
     if (!html) {
       logger.warn('⚠️ fetchPage returned empty HTML');
       return [];
@@ -134,3 +127,4 @@ class ScrapingService {
 }
 
 export const scrapingService = new ScrapingService();
+
