@@ -98,10 +98,24 @@ class ScrapingService {
     }
 
     logger.info(`📝 Fetched eBay HTML length: ${html.length}`);
-    logger.info(`📝 eBay HTML snippet:\n${html.slice(0, 1000).replace(/\n/g, ' ')}`);
+    logger.info(`📝 eBay HTML snippet (first 5KB):\n${html.slice(0, 5000).replace(/\n/g, ' ')}`);
 
-    // eBay listing regex parsing - might need tweaking if eBay HTML structure changes
-    const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
+    // Check for bot blocking keywords
+    if (html.includes('radware_stormcaster') || html.includes('just a moment') || html.includes('captcha')) {
+      logger.warn('⚠️ Detected possible bot-blocking content in eBay HTML');
+      return [];
+    }
+
+    // Find <li> blocks with class containing "s-item"
+    const itemBlocks = [...html.matchAll(/<li[^>]+class="[^"]*s-item[^"]*"[^>]*>.*?<\/li>/gs)];
+    logger.info(`📝 Found ${itemBlocks.length} <li class="s-item"> blocks`);
+
+    if (itemBlocks.length === 0) {
+      logger.warn('⚠️ No eBay listing blocks found with current regex');
+      return [];
+    }
+
+    const items = itemBlocks.map(block => {
       const blockStr = block[0];
       const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
       const link = safeMatch(/href="(https:\/\/www\.ebay\.co\.uk\/itm\/[^"]+)"/, blockStr);
@@ -121,3 +135,4 @@ class ScrapingService {
 }
 
 export const scrapingService = new ScrapingService();
+
