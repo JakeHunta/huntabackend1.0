@@ -1,37 +1,10 @@
-// Import express if not imported yet
-import express from 'express';
-
-// Assuming you already have something like:
-// const app = express();
-app.use(express.json()); // ensure JSON body parsing is enabled
-
-// Define your verification token (set this in your .env ideally)
-const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || 'your-verification-token';
-
-// Add the eBay webhook route
-app.post('/webhooks/ebay-account-deletion', (req, res) => {
-  const token =
-    req.headers['x-ebay-verification-token'] ||
-    req.body.verificationToken;
-
-  if (token !== VERIFICATION_TOKEN) {
-    console.warn('⚠️ eBay webhook verification token mismatch');
-    return res.status(403).send('Forbidden');
-  }
-
-  console.log('✅ Received eBay account deletion webhook:', req.body);
-
-  // TODO: Add any cleanup logic here, e.g. remove user data from your DB
-
-  res.status(200).send('OK');
-});
 import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
-import { searchService } from './services/searchService.js'; // your search logic here
+import { searchService } from './services/searchService.js';
 import { rateLimitService } from './services/rateLimitService.js';
 
 const app = express();
@@ -55,6 +28,7 @@ app.use(session({
   }
 }));
 
+// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -67,6 +41,27 @@ app.get('/health', (req, res) => {
   });
 });
 
+// eBay account deletion webhook handler
+const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || 'your-verification-token';
+
+app.post('/webhooks/ebay-account-deletion', (req, res) => {
+  const token =
+    req.headers['x-ebay-verification-token'] ||
+    req.body.verificationToken;
+
+  if (token !== VERIFICATION_TOKEN) {
+    console.warn('⚠️ eBay webhook verification token mismatch');
+    return res.status(403).send('Forbidden');
+  }
+
+  console.log('✅ Received eBay account deletion webhook:', req.body);
+
+  // TODO: Add your cleanup logic here, e.g., remove user data from DB
+
+  res.status(200).send('OK');
+});
+
+// Search API endpoint
 app.post('/search', async (req, res) => {
   try {
     const { search_term, location = 'UK', currency = 'GBP' } = req.body;
@@ -76,7 +71,7 @@ app.post('/search', async (req, res) => {
     }
 
     const userIdentifier = req.sessionID || req.ip || 'anonymous';
-    const isSubscribed = false; // Implement your auth & subscription logic
+    const isSubscribed = false; // Implement your auth & subscription logic here
 
     const rateLimit = await rateLimitService.checkDailyLimit(userIdentifier, isSubscribed);
     if (!rateLimit.allowed) {
