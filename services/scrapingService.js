@@ -28,7 +28,6 @@ async function fetchPage(url, options = {}) {
     url,
     render_js: true,
     premium_proxy: true,
-    headers: JSON.stringify(customHeaders),
   };
 
   if (cookies) {
@@ -43,6 +42,7 @@ async function fetchPage(url, options = {}) {
     attempt++;
     try {
       const response = await axios.get(BASE_URL, { params, timeout: 30000 });
+          headers: JSON.stringify(customHeaders),
       logger.info(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
