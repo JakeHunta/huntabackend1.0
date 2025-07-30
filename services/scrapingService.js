@@ -7,33 +7,13 @@ if (!process.env.SCRAPINGBEE_API_KEY) {
   logger.warn('⚠️ SCRAPINGBEE_API_KEY not set. Scraping will fail.');
 }
 
-/**
- * Fetch a page with retries and exponential backoff on 429 rate limits.
- * Enables JS rendering to get fully rendered HTML.
- * Passes custom headers and optional cookies to mimic a real browser and reduce blocking.
- * @param {string} url - Fully constructed URL (already encoded where needed).
- * @param {object} options Optional. { maxRetries: number, cookies: Array<{name, value, domain}> }
- */
 async function fetchPage(url, options = {}) {
   const { maxRetries = 5, cookies } = options;
-
   const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
   if (!SCRAPINGBEE_API_KEY) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
-  const params = {
-    api_key: SCRAPINGBEE_API_KEY,
-    url,
-    render_js: true,
-    premium_proxy: true,
-  };
-
-  if (cookies) {
-    params.cookies = JSON.stringify(cookies);
-  }
-
-  // Headers to send to ScrapingBee API (simulate browser for target site)
   const customHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) ' +
@@ -43,6 +23,18 @@ async function fetchPage(url, options = {}) {
     'Referer': 'https://www.ebay.co.uk/',
   };
 
+  const params = {
+    api_key: SCRAPINGBEE_API_KEY,
+    url,
+    render_js: true,
+    premium_proxy: true,
+    headers: JSON.stringify(customHeaders),
+  };
+
+  if (cookies) {
+    params.cookies = JSON.stringify(cookies);
+  }
+
   let attempt = 0;
   const delayMs = 1000;
   const rateLimitDelayMs = 10000;
@@ -50,16 +42,12 @@ async function fetchPage(url, options = {}) {
   while (attempt <= maxRetries) {
     attempt++;
     try {
-      const response = await axios.get(BASE_URL, {
-        params,
-        headers: customHeaders,
-        timeout: 30000,
-      });
-      logger.debug(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
+      const response = await axios.get(BASE_URL, { params, timeout: 30000 });
+      logger.info(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
       const status = error.response?.status;
-      const dataSnippet = error.response?.data ? JSON.stringify(error.response.data).slice(0, 200) : '';
+      const snippet = error.response?.data ? JSON.stringify(error.response.data).slice(0, 200) : '';
 
       if (status === 429) {
         const waitTime = rateLimitDelayMs * Math.pow(2, attempt - 1);
@@ -72,7 +60,8 @@ async function fetchPage(url, options = {}) {
         }
         await new Promise(r => setTimeout(r, totalWait));
       } else {
-        logger.warn(`⚠️ fetchPage attempt ${attempt} failed for URL: ${url} - Status: ${status} - Message: ${error.message} Response snippet: ${dataSnippet}`);
+        logger.warn(`⚠️ fetchPage attempt ${attempt} failed for URL: ${url} - Status: ${status} - Message: ${error.message}`);
+        if (snippet) logger.warn(`Response snippet: ${snippet}`);
         if (attempt > maxRetries) {
           logger.error(`❌ fetchPage max retries reached for URL: ${url}`);
           throw error;
@@ -89,7 +78,6 @@ function safeMatch(regex, str, group = 1) {
   return match && match[group] ? match[group].trim() : null;
 }
 
-// Helper to build marketplace search URLs with proper encoding of query params
 function buildMarketplaceUrl(base, queryParams) {
   const params = new URLSearchParams();
   for (const key in queryParams) {
@@ -102,14 +90,12 @@ class ScrapingService {
   async searchEbay(term) {
     const url = buildMarketplaceUrl('https://www.ebay.co.uk/sch/i.html', {
       _nkw: term,
-      _sop: '12', // Sort by newly listed
+      _sop: '12',
     });
-
     logger.info(`🛒 Searching eBay for: "${term}"`);
     const html = await fetchPage(url);
     if (!html) return [];
 
-    // Match each item container on the page
     const items = [...html.matchAll(/<li class="s-item.*?<\/li>/gs)].map(block => {
       const blockStr = block[0];
       const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
@@ -126,7 +112,8 @@ class ScrapingService {
 
     return items;
   }
+
+  // You can add more marketplaces similarly, but let's keep it simple for now
 }
 
 export const scrapingService = new ScrapingService();
-
