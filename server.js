@@ -42,14 +42,15 @@ app.get('/health', (req, res) => {
 });
 
 // eBay account deletion webhook handler
-const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || 'your-verification-token';
+const VERIFICATION_TOKEN = (process.env.EBAY_VERIFICATION_TOKEN || '').trim();
 
 app.post('/webhooks/ebay-account-deletion', (req, res) => {
-  const token =
-    req.headers['x-ebay-verification-token'] ||
-    req.body.verificationToken;
+  const receivedToken = ((req.headers['x-ebay-verification-token'] || req.body.verificationToken) || '').trim();
 
-  if (token !== VERIFICATION_TOKEN) {
+  console.log('Expected token:', JSON.stringify(VERIFICATION_TOKEN));
+  console.log('Received token:', JSON.stringify(receivedToken));
+
+  if (receivedToken !== VERIFICATION_TOKEN) {
     console.warn('⚠️ eBay webhook verification token mismatch');
     return res.status(403).send('Forbidden');
   }
