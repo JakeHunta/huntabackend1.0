@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import { searchService } from './services/searchService.js';
-import { nicheSearchService } from './services/nicheSearchService.js';
+import * as nicheSearchService from './services/nicheSearchService.js'; // import all to access searchNicheMarketplaces
 import { rateLimitService } from './services/rateLimitService.js';
 
 const app = express();
@@ -41,7 +41,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Search endpoint
+// Main search endpoint
 app.post('/search', async (req, res) => {
   try {
     const { search_term, location = 'UK', currency = 'GBP' } = req.body;
@@ -76,14 +76,14 @@ app.post('/search', async (req, res) => {
   }
 });
 
-// Niche marketplaces search endpoint
+// Niche marketplaces search endpoint using Puppeteer
 app.post('/search-niche', async (req, res) => {
-  const { search_term } = req.body;
-  if (!search_term || typeof search_term !== 'string') {
-    return res.status(400).json({ error: 'Invalid search term' });
-  }
-
   try {
+    const { search_term } = req.body;
+    if (!search_term || typeof search_term !== 'string') {
+      return res.status(400).json({ error: 'Invalid search term' });
+    }
+
     const listings = await nicheSearchService.searchNicheMarketplaces(search_term.trim());
     res.json({ listings });
   } catch (error) {
