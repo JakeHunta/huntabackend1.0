@@ -15,6 +15,21 @@ async function fetchPage(url, options = {}) {
     throw new Error('ScrapingBee API key is not configured');
   }
 
+  // Build query params for ScrapingBee API call
+  const params = {
+    api_key: SCRAPINGBEE_API_KEY,
+    url,
+    render_js: true,
+    premium_proxy: true,
+    block_resources: false,  // keep this to bypass bot detection
+    // Removed 'country' param as it causes errors
+  };
+
+  if (cookies) {
+    params.cookies = JSON.stringify(cookies);
+  }
+
+  // Custom headers for the target site (eBay)
   const customHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) ' +
@@ -24,19 +39,6 @@ async function fetchPage(url, options = {}) {
     'Referer': 'https://www.ebay.co.uk/',
   };
 
-  const params = {
-    api_key: SCRAPINGBEE_API_KEY,
-    url,
-    render_js: true,
-    premium_proxy: true,
-    block_resources: false,  // bypass ads/blockers
-    headers: JSON.stringify(customHeaders),
-  };
-
-  if (cookies) {
-    params.cookies = JSON.stringify(cookies);
-  }
-
   let attempt = 0;
   const delayMs = 1000;
   const rateLimitDelayMs = 10000;
@@ -44,7 +46,11 @@ async function fetchPage(url, options = {}) {
   while (attempt <= maxRetries) {
     attempt++;
     try {
-      const response = await axios.get(BASE_URL, { params, timeout: 30000 });
+      const response = await axios.get(BASE_URL, {
+        params,
+        headers: customHeaders,  // Pass headers here, NOT inside params
+        timeout: 30000,
+      });
       logger.info(`✅ fetchPage success for URL: ${url}, length: ${response.data.length}`);
       return response.data;
     } catch (error) {
@@ -95,7 +101,7 @@ class ScrapingService {
   async searchEbay(term) {
     const url = buildMarketplaceUrl('https://www.ebay.co.uk/sch/i.html', {
       _nkw: term,
-      _sop: '12', // Sort by newly listed
+      _sop: '12',
     });
 
     logger.info(`🛒 Searching eBay for: "${term}"`);
@@ -109,17 +115,13 @@ class ScrapingService {
     logger.info(`📝 Fetched eBay HTML length: ${html.length}`);
     logger.info(`📝 eBay HTML snippet (first 5KB):\n${html.slice(0, 5000).replace(/\n/g, ' ')}`);
 
-    // Detect bot-block page by known keywords
-    if (
-      html.toLowerCase().includes('radware_stormcaster') ||
-      html.toLowerCase().includes('just a moment') ||
-      html.toLowerCase().includes('captcha')
-    ) {
+    // Detect bot blocking
+    if (html.includes('radware_stormcaster') || html.includes('just a moment') || html.includes('captcha')) {
       logger.warn('⚠️ Detected possible bot-blocking content in eBay HTML');
       return [];
     }
 
-    // Grab all <li> elements with class containing s-item
+    // Find eBay listing blocks with class "s-item"
     const itemBlocks = [...html.matchAll(/<li[^>]+class="[^"]*s-item[^"]*"[^>]*>.*?<\/li>/gs)];
     logger.info(`📝 Found ${itemBlocks.length} <li class="s-item"> blocks`);
 
@@ -128,6 +130,7 @@ class ScrapingService {
       return [];
     }
 
+    // Parse listing details
     const items = itemBlocks.map(block => {
       const blockStr = block[0];
       const title = safeMatch(/<h3[^>]*>(.*?)<\/h3>/, blockStr);
