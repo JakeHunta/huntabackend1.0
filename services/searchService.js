@@ -1,6 +1,6 @@
 import { openaiService } from './openaiService.js';
-import { ebayApiService } from './ebayApiService.js'; // your official eBay API wrapper service
-import { googleShoppingService } from './googleShoppingService.js'; // your RapidAPI Google Shopping service
+import { scrapingService } from './scrapingService.js';
+import { googleShoppingService } from './googleShoppingService.js';
 import { logger } from '../utils/logger.js';
 
 function delay(ms) {
@@ -16,7 +16,6 @@ class SearchService {
     try {
       logger.info(`🔍 Starting search for: "${searchTerm}" in ${location} with ${currency}`);
 
-      // Enhance query with OpenAI and validate response
       let enhancedQuery = { search_terms: [] };
       try {
         logger.info('🤖 Enhancing search query with OpenAI...');
@@ -35,35 +34,39 @@ class SearchService {
         this.lastEnhancedQuery = enhancedQuery;
       }
 
-      logger.info('🕷️ Searching marketplaces...');
+      logger.info('🕷️ Scraping marketplaces...');
 
-      // Limit to 5 search terms max (original + enhanced)
       const allSearchTerms = [searchTerm, ...enhancedQuery.search_terms].slice(0, 5);
+
+      const sources = [
+        { name: 'ebay', fn: scrapingService.searchEbay },
+        { name: 'discogs', fn: scrapingService.searchDiscogs },
+        { name: 'vinted', fn: scrapingService.searchVinted },
+        { name: 'depop', fn: scrapingService.searchDepop },
+        { name: 'gumtree', fn: scrapingService.searchGumtree },
+        { name: 'google_shopping', fn: googleShoppingService.search.bind(googleShoppingService) },
+      ];
 
       let allResults = [];
 
       for (const term of allSearchTerms) {
         logger.info(`🔍 Searching term: "${term}"`);
 
-        // Search eBay official API
-        try {
-          const ebayResults = await ebayApiService.search(term, location, currency);
-          logger.info(`📦 eBay API returned ${ebayResults.length} results for "${term}"`);
-          allResults = allResults.concat(ebayResults);
-        } catch (err) {
-          logger.warn(`⚠️ eBay API search failed for "${term}": ${err.message}`);
-        }
+        const resultsPerSource = await Promise.all(
+          sources.map(async (source) => {
+            try {
+              const results = await source.fn(term);
+              logger.info(`📦 ${source.name} returned ${results.length} results for "${term}"`);
+              return results;
+            } catch (err) {
+              logger.warn(`⚠️ ${source.name} search failed for "${term}": ${err.message}`);
+              return [];
+            }
+          })
+        );
 
-        // Search Google Shopping API with retry on rate limit
-        try {
-          const googleResults = await this.tryGoogleShoppingSearch(term);
-          logger.info(`📦 Google Shopping returned ${googleResults.length} results for "${term}"`);
-          allResults = allResults.concat(googleResults);
-        } catch (err) {
-          logger.warn(`⚠️ Google Shopping search failed for "${term}": ${err.message}`);
-        }
+        allResults = allResults.concat(...resultsPerSource);
 
-        // Delay between search terms to avoid API rate limits
         await delay(1500);
       }
 
@@ -72,20 +75,16 @@ class SearchService {
         return [];
       }
 
-      // Deduplicate results by normalized title and price
       const uniqueResults = this.deduplicateResults(allResults);
       logger.info(`📊 Found ${uniqueResults.length} unique results`);
 
-      // Score results
       const scoredResults = this.scoreResults(uniqueResults, searchTerm, enhancedQuery);
 
-      // Filter & sort by score (threshold 0.3)
       const filtered = scoredResults
         .sort((a, b) => b.score - a.score)
         .filter(r => r.score >= 0.3)
         .slice(0, 30);
 
-      // Convert price format/currency symbols
       const converted = this.convertCurrency(filtered, currency);
       logger.info(`✅ Returning ${converted.length} results`);
 
@@ -95,23 +94,6 @@ class SearchService {
       logger.error('💥 SearchService error:', error);
       throw new Error(`Search failed: ${error.message}`);
     }
-  }
-
-  async tryGoogleShoppingSearch(term, retries = 3, delayMs = 2000) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        return await googleShoppingService.search(term);
-      } catch (error) {
-        if (error.response?.status === 429 && attempt < retries) {
-          logger.warn(`⚠️ Google Shopping API rate limited. Retrying attempt ${attempt}/${retries} after ${delayMs}ms`);
-          await delay(delayMs);
-          delayMs *= 2; // exponential backoff
-        } else {
-          throw error;
-        }
-      }
-    }
-    return [];
   }
 
   deduplicateResults(results) {
@@ -181,5 +163,8 @@ class SearchService {
     return this.lastEnhancedQuery;
   }
 }
+
+export const searchService = new SearchService();
+
 
 export const searchService = new SearchService();
