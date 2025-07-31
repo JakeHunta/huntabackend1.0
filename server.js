@@ -6,6 +6,7 @@ import cors from 'cors';
 import session from 'express-session';
 import { searchService } from './services/searchService.js';
 import { rateLimitService } from './services/rateLimitService.js';
+import { searchNicheMarketplaces } from './services/nicheSearchService.js';  // <-- Import your niche search service
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -41,7 +42,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Search API endpoint
+// Standard search endpoint
 app.post('/search', async (req, res) => {
   try {
     const { search_term, location = 'UK', currency = 'GBP' } = req.body;
@@ -51,7 +52,7 @@ app.post('/search', async (req, res) => {
     }
 
     const userIdentifier = req.sessionID || req.ip || 'anonymous';
-    const isSubscribed = false; // Implement your auth & subscription logic here
+    const isSubscribed = false; // TODO: Implement your auth & subscription logic
 
     const rateLimit = await rateLimitService.checkDailyLimit(userIdentifier, isSubscribed);
     if (!rateLimit.allowed) {
@@ -72,6 +73,22 @@ app.post('/search', async (req, res) => {
   } catch (err) {
     console.error('Search error:', err);
     res.status(500).json({ error: 'Search failed', message: err.message });
+  }
+});
+
+// Niche marketplace search endpoint
+app.post('/search-niche', async (req, res) => {
+  const { search_term } = req.body;
+  if (!search_term || typeof search_term !== 'string') {
+    return res.status(400).json({ error: 'Invalid search term' });
+  }
+
+  try {
+    const listings = await searchNicheMarketplaces(search_term.trim());
+    res.json({ listings });
+  } catch (error) {
+    console.error('Niche search error:', error);
+    res.status(500).json({ error: 'Niche search failed', message: error.message });
   }
 });
 
