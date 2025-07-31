@@ -1,6 +1,7 @@
 import { openaiService } from './openaiService.js';
-import { scrapingService } from './scrapingService.js';
-import { googleShoppingService } from './googleShoppingService.js'; // new
+import { scrapingService } from './scrapingService.js'; // For other marketplaces still using scraping
+import { googleShoppingService } from './googleShoppingService.js';
+import { ebayApiService } from './ebayApiService.js'; // New eBay API service
 import { logger } from '../utils/logger.js';
 
 function delay(ms) {
@@ -35,12 +36,12 @@ class SearchService {
         this.lastEnhancedQuery = enhancedQuery;
       }
 
-      logger.info('🕷️ Scraping marketplaces...');
+      logger.info('🕷️ Searching marketplaces...');
 
       const allSearchTerms = [searchTerm, ...enhancedQuery.search_terms].slice(0, 5);
 
       const sources = [
-        { name: 'ebay', fn: scrapingService.searchEbay },
+        { name: 'ebay', fn: ebayApiService.searchItems.bind(ebayApiService) }, // Use API here
         { name: 'discogs', fn: scrapingService.searchDiscogs },
         { name: 'vinted', fn: scrapingService.searchVinted },
         { name: 'depop', fn: scrapingService.searchDepop },
@@ -53,11 +54,9 @@ class SearchService {
       for (const term of allSearchTerms) {
         logger.info(`🔍 Searching term: "${term}"`);
 
-        // Run all marketplace searches in parallel per term
         const resultsPerSource = await Promise.all(
           sources.map(async (source) => {
             try {
-              // Call scraping fn with one parameter (term)
               const results = await source.fn(term);
               logger.info(`📦 ${source.name} returned ${results.length} results for "${term}"`);
               return results;
@@ -68,11 +67,9 @@ class SearchService {
           })
         );
 
-        // Flatten results and accumulate
         allResults = allResults.concat(...resultsPerSource);
 
-        // Delay between terms to avoid rate limiting
-        await delay(1500);
+        await delay(1500); // Throttle between terms
       }
 
       if (allResults.length === 0) {
@@ -80,20 +77,20 @@ class SearchService {
         return [];
       }
 
-      // Deduplicate results by normalized title and price
+      // Deduplicate by normalized title and price
       const uniqueResults = this.deduplicateResults(allResults);
       logger.info(`📊 Found ${uniqueResults.length} unique results`);
 
       // Score results
       const scoredResults = this.scoreResults(uniqueResults, searchTerm, enhancedQuery);
 
-      // Filter & sort by score (threshold 0.3)
+      // Filter and sort
       const filtered = scoredResults
         .sort((a, b) => b.score - a.score)
         .filter(r => r.score >= 0.3)
         .slice(0, 30);
 
-      // Convert price format/currency symbols
+      // Currency formatting
       const converted = this.convertCurrency(filtered, currency);
       logger.info(`✅ Returning ${converted.length} results`);
 
