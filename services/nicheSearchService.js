@@ -1,40 +1,53 @@
-import axios from 'axios';
-import cheerio from 'cheerio';
+import puppeteer from 'puppeteer';
 import { logger } from '../utils/logger.js';
 
-const SCRAPINGBEE_API_KEY = process.env.SCRAPINGBEE_API_KEY;
-const SCRAPINGBEE_BASE_URL = 'https://app.scrapingbee.com/api/v1/';
-
 const NICHE_MARKETPLACE_DOMAINS = [
-  'cashconverters.co.uk',
-  'musicmagpie.co.uk',
-  'discogs.com',
-  // add your niche marketplace domains here
+  'nichesite1.com',
+  'nichesite2.com',
+  'nichesite3.com',
 ];
 
-async function fetchPage(url) {
-  if (!SCRAPINGBEE_API_KEY) {
-    throw new Error('ScrapingBee API key missing');
-  }
-  const params = {
-    api_key: SCRAPINGBEE_API_KEY,
-    url,
-    render_js: true,
-    premium_proxy: true,
-  };
-  const resp = await axios.get(SCRAPINGBEE_BASE_URL, { params, timeout: 30000 });
-  logger.info(`Fetched page length: ${resp.data.length} for URL: ${url}`);
-  return resp.data;
+async function scrapeListingPage(page, url) {
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  // Adjust selectors here depending on your niche sites
+  const title = await page.title();
+
+  // Example selectors (change these for your niche sites)
+  const price = await page.$eval('.price, .product-price, .item-price', el => el.innerText).catch(() => 'Price not found');
+  const image = await page.$eval('img.product-image, img.main-image, img.primary-image', img => img.src).catch(() => null);
+
+  return { url, title, price, image, source: url };
 }
 
-function extractGoogleResultLinks(html) {
-  const $ = cheerio.load(html);
-  const urls = [];
+export async function searchNicheMarketplaces(searchTerm) {
+  logger.info(`Starting niche search for "${searchTerm}" with Puppeteer...`);
+  const browser = await puppeteer.launch({ headless: true });
+  const page = await browser.newPage();
 
-  $('a').each((i, el) => {
-    const href = $(el).attr('href');
-    if (!href) return;
-    // Google search links often come as "/url?q=ACTUAL_URL&sa=..."
-    const match = href.match(/^\/url\?q=([^&]+)/);
-    if (match) {
-      const
+  // Google search URL
+  const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchTerm)}`;
+
+  await page.goto(googleSearchUrl, { waitUntil: 'networkidle2' });
+
+  // Extract links that match your niche domains
+  const links = await page.$$eval('a', (anchors, domains) => {
+    return anchors
+      .map(a => a.href)
+      .filter(href => domains.some(domain => href.includes(domain)));
+  }, NICHE_MARKETPLACE_DOMAINS);
+
+  logger.info(`Found ${links.length} niche marketplace links on Google search`);
+
+  const results = [];
+  for (const url of links) {
+    try {
+      const listing = await scrapeListingPage(page, url);
+      results.push(listing);
+    } catch (err) {
+      logger.warn(`Failed to scrape ${url}: ${err.message}`);
+    }
+  }
+
+  await browser.close();
+  return results;
+}
